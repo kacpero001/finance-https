@@ -7,11 +7,11 @@ services:
     startCommand: node server.js
     envVars:
       - key: MONGO_URI
-        value: YOUR_MONGO_URI
+        value: mongodb+srv://finance_user:Studia123.@cluster.mongodb.net/finance-app
       - key: VAPID_PUBLIC_KEY
-        value: YOUR_PUBLIC_KEY
+        value: BDsiU3r_fLsjaUAUNte2V5V04ix6lkxvERxH5if1ycUbhjRDN5g0YApMwrd2TY3t-MdEql1XVveSDDrZIGM8ZUw
       - key: VAPID_PRIVATE_KEY
-        value: YOUR_PRIVATE_KEY
+        value: 65qV1kLiCwUZrnFedNZZ4TyUjM8jrYSeEHnOBpzMeNU
 
   - type: web
     name: finance-frontend
