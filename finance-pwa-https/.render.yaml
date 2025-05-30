@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: finance-backend
+    env: node
+    rootDir: finance-backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: MONGO_URI
+        value: YOUR_MONGO_URI
+      - key: VAPID_PUBLIC_KEY
+        value: YOUR_PUBLIC_KEY
+      - key: VAPID_PRIVATE_KEY
+        value: YOUR_PRIVATE_KEY
+
+  - type: web
+    name: finance-frontend
+    env: static
+    rootDir: finance-frontend
+    buildCommand: ""
+    staticPublishPath: .
