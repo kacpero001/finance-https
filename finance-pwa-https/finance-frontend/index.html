@@ -1,0 +1,251 @@
+﻿<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Finanse PWA</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    #reportChart {
+      max-width: 300px;
+      max-height: 300px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans">
+  <div class="container mx-auto p-4">
+    <h1 class="text-2xl font-bold mb-4">Zarządzanie Finansami</h1>
+
+    <!-- Formularz -->
+    <div class="mb-4">
+      <input id="description" type="text" placeholder="Opis" class="border p-2 mr-2" />
+      <input id="amount" type="number" placeholder="Kwota" class="border p-2 mr-2" />
+      <select id="type" class="border p-2 mr-2">
+        <option value="income">Przychód</option>
+        <option value="expense">Wydatek</option>
+      </select>
+      <button onclick="addTransaction()" class="bg-blue-500 text-white p-2 rounded">Dodaj</button>
+    </div>
+
+    <!-- Budżet -->
+    <div class="mb-4">
+      <input id="budget" type="number" placeholder="Ustaw budżet" class="border p-2 mr-2" />
+      <button onclick="setBudget()" class="bg-green-500 text-white p-2 rounded">Ustaw</button>
+      <p id="budgetStatus" class="mt-2"></p>
+    </div>
+
+    <!-- Czyszczenie -->
+    <div class="mb-4">
+      <button onclick="clearData()" class="bg-red-500 text-white p-2 rounded">Wyczyść dane</button>
+    </div>
+
+    <h2 class="text-xl font-semibold mb-2">Wszystkie transakcje</h2>
+    <ul id="transactions" class="mb-4"></ul>
+
+    <h2 class="text-xl font-semibold mb-2">Wydatki</h2>
+    <table id="expensesTable" class="w-full border-collapse mb-4">
+      <thead>
+        <tr class="bg-gray-200">
+          <th class="border p-2 text-left">Opis</th>
+          <th class="border p-2 text-left">Kwota (PLN)</th>
+          <th class="border p-2 text-left">Typ</th>
+        </tr>
+      </thead>
+      <tbody id="expensesBody"></tbody>
+    </table>
+
+    <h2 class="text-xl font-semibold mb-2">Raport</h2>
+    <canvas id="reportChart" class="mb-4"></canvas>
+  </div>
+
+  <script>
+    let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
+    let budget = parseFloat(localStorage.getItem('budget')) || 0;
+    let chartInstance = null;
+
+    function addTransaction() {
+      const description = document.getElementById('description').value;
+      const amount = parseFloat(document.getElementById('amount').value);
+      const type = document.getElementById('type').value;
+
+      if (description && amount) {
+        const transaction = { id: Date.now(), description, amount, type };
+        transactions.push(transaction);
+        localStorage.setItem('transactions', JSON.stringify(transactions));
+        syncWithBackend(transaction);
+        updateUI();
+        checkBudget();
+      }
+    }
+
+    function setBudget() {
+      budget = parseFloat(document.getElementById('budget').value) || 0;
+      localStorage.setItem('budget', JSON.stringify(budget));
+      updateUI();
+      checkBudget();
+    }
+
+    async function clearData() {
+      if (confirm('Czy na pewno chcesz wyczyścić wszystkie dane?')) {
+        transactions = [];
+        budget = 0;
+        localStorage.removeItem('transactions');
+        localStorage.removeItem('budget');
+        try {
+          const response = await fetch('/api/transactions', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          if (!response.ok) console.error('Błąd podczas czyszczenia MongoDB');
+        } catch (error) {
+          console.error('Błąd czyszczenia MongoDB:', error);
+        }
+        updateUI();
+      }
+    }
+
+    function checkBudget() {
+      const totalExpenses = transactions
+        .filter(t => t.type === 'expense')
+        .reduce((sum, t) => sum + t.amount, 0);
+      const budgetStatus = document.getElementById('budgetStatus');
+      if (budget === 0) {
+        budgetStatus.textContent = 'Nie ustawiono budżetu.';
+        budgetStatus.className = 'mt-2 text-gray-500';
+      } else {
+        const remaining = budget - totalExpenses;
+        if (remaining >= 0) {
+          budgetStatus.textContent = `Pozostały budżet: ${remaining.toFixed(2)} PLN`;
+          budgetStatus.className = 'mt-2 text-green-500';
+        } else {
+          budgetStatus.textContent = `Przekroczono budżet o: ${(-remaining).toFixed(2)} PLN`;
+          budgetStatus.className = 'mt-2 text-red-500';
+          if ('serviceWorker' in navigator && 'PushManager' in window) {
+            navigator.serviceWorker.ready.then(registration => {
+              if (Notification.permission === 'granted') {
+                registration.showNotification('Przekroczono budżet!', {
+                  body: `Wydatki (${totalExpenses.toFixed(2)} PLN) przekroczyły budżet (${budget.toFixed(2)} PLN).`,
+                  icon: 'icon.png'
+                });
+              } else {
+                console.warn('Brak zgody na powiadomienia.');
+              }
+            });
+          }
+        }
+      }
+    }
+
+    function updateUI() {
+      const transactionsList = document.getElementById('transactions');
+      transactionsList.innerHTML = '';
+      transactions.forEach(t => {
+        const li = document.createElement('li');
+        li.textContent = `${t.description}: ${t.amount.toFixed(2)} PLN (${t.type === 'income' ? 'Przychód' : 'Wydatek'})`;
+        transactionsList.appendChild(li);
+      });
+
+      const expensesBody = document.getElementById('expensesBody');
+      expensesBody.innerHTML = '';
+      const expenses = transactions.filter(t => t.type === 'expense');
+      if (expenses.length === 0) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="3" class="border p-2 text-center">Brak wydatków</td>`;
+        expensesBody.appendChild(tr);
+      } else {
+        expenses.forEach(t => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="border p-2">${t.description}</td>
+            <td class="border p-2">${t.amount.toFixed(2)}</td>
+            <td class="border p-2">Wydatek</td>
+          `;
+          expensesBody.appendChild(tr);
+        });
+      }
+
+      const ctx = document.getElementById('reportChart').getContext('2d');
+      const incomes = transactions.filter(t => t.type === 'income');
+      const incomeTotal = incomes.reduce((sum, t) => sum + t.amount, 0);
+      const expenseTotal = expenses.reduce((sum, t) => sum + t.amount, 0);
+
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: ['Przychody', 'Wydatki'],
+          datasets: [{
+            data: [incomeTotal, expenseTotal],
+            backgroundColor: ['#4caf50', '#f44336'],
+            hoverOffset: 24
+          }]
+        },
+        options: {
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.parsed || 0;
+                  const transactionsForType = label === 'Przychody' ? incomes : expenses;
+                  let tooltipText = `${label}: ${value.toFixed(2)} PLN`;
+                  transactionsForType.forEach(t => {
+                    tooltipText += `\n- ${t.description}: ${t.amount.toFixed(2)} PLN`;
+                  });
+                  return tooltipText.split('\n');
+                }
+              }
+            }
+          }
+        }
+      });
+
+      checkBudget();
+    }
+
+    async function syncWithBackend(transaction) {
+      try {
+        const response = await fetch('/api/transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(transaction)
+        });
+        console.log('Zapisano w MongoDB:', await response.json());
+      } catch (error) {
+        console.error('Błąd synchronizacji:', error);
+      }
+    }
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .then(reg => {
+          console.log('Service Worker zarejestrowany:', reg);
+          Notification.requestPermission().then(permission => {
+            console.log('Zgoda na powiadomienia:', permission);
+          });
+        })
+        .catch(err => {
+          console.error('Błąd rejestracji Service Workera:', err);
+        });
+    }
+
+    async function subscribeToPush() {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: 'BDsiU3r_fLsjaUAUNte2V5V04ix6lkxvERxH5if1ycUbhjRDN5g0YApMwrd2TY3t-MdEql1XVveSDDrZIGM8ZUw'
+      });
+      await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription)
+      });
+    }
+
+    updateUI();
+  </script>
+</body>
+</html>

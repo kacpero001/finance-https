@@ -1,0 +1,8 @@
+[build]
+  publish = "."   # To jest katalog z index.html
+  command = ""
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
